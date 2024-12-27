@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StarBlaze</title>
+  <link rel="icon" type="image/png" href="images/star-clip-art-1.png">
+  <style>
+    body {
+      font-family: 'Courier New', monospace;
+      background: #111;
+      color: #00ff99;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    #game-board {
+      display: grid;
+      gap: 2px;
+      margin-bottom: 20px;
+      border: 2px solid #444; /* Added border for better visibility */
+    }
+    .cell {
+      width: 30px;
+      height: 30px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #222;
+      border: 1px solid #333;
+    }
+    .player {
+      background: #00ff99;
+    }
+    .goal {
+      background: #555; /* Inactive goal */
+    }
+    .goal.active {
+      background: #ff5722; /* Active goal */
+    }
+    .obstacle {
+      background: #555;
+    }
+    .collectible {
+      background: #ffeb3b;
+    }
+    .info {
+      color: #fff;
+      margin-bottom: 10px;
+    }
+    .restart-btn {
+      background: #ff5722;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin-top: 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .restart-btn:hover {
+      background: #e64a19;
+    }
+  </style>
+</head>
+<body>
+  <div class="info">Level: <span id="level">1</span> | Score: <span id="score">0</span> | Time Left: <span id="timer">30</span></div>
+  <div id="game-board"></div>
+  <button class="restart-btn" onclick="resetGame()">Restart Game</button>
+
+  <script>
+    // Sound files
+    const collectSound = new Audio('Sounds/retro-coin-3-236679.mp3');
+    const goalSound = new Audio('Sounds/pop-268648.mp3');
+    const levelUpSound = new Audio('Sounds/level-up-2-199574.mp3');
+    const gameOverSound = new Audio('Sounds/game-over-arcade-6435.mp3');
+    
+    // Background music
+    const backgroundMusic = new Audio('Sounds/game-music-loop-6-144641.mp3');
+    backgroundMusic.loop = true; // Loop the music
+    backgroundMusic.volume = 0.2; // Set volume level (adjust as needed)
+    backgroundMusic.play(); // Play the background music when the page loads
+
+    let boardSize = 10;
+    const maxLevels = 50;
+    const board = document.getElementById('game-board');
+    const levelDisplay = document.getElementById('level');
+    const scoreDisplay = document.getElementById('score');
+    const timerDisplay = document.getElementById('timer');
+
+    let playerPosition = { x: 0, y: 0 };
+    let goalPosition = { x: randomPosition(), y: randomPosition() };
+    let obstacles = [];
+    let collectibles = [];
+    let score = 0;
+    let level = 1;
+    let timeLeft = 30;
+    let interval;
+
+    function randomPosition() {
+      return Math.floor(Math.random() * boardSize);
+    }
+
+    function generateObstacles(count) {
+      const positions = [];
+      while (positions.length < count) {
+        const pos = { x: randomPosition(), y: randomPosition() };
+        if (
+          !positions.some(p => p.x === pos.x && p.y === pos.y) &&
+          (pos.x !== playerPosition.x || pos.y !== playerPosition.y) &&
+          (pos.x !== goalPosition.x || pos.y !== goalPosition.y)
+        ) {
+          positions.push(pos);
+        }
+      }
+      return positions;
+    }
+
+    function generateCollectibles(count) {
+      const positions = [];
+      while (positions.length < count) {
+        const pos = { x: randomPosition(), y: randomPosition() };
+        if (
+          !positions.some(p => p.x === pos.x && p.y === pos.y) &&
+          (pos.x !== playerPosition.x || pos.y !== playerPosition.y) &&
+          (pos.x !== goalPosition.x || pos.y !== goalPosition.y) &&
+          !obstacles.some(o => o.x === pos.x && o.y === pos.y)
+        ) {
+          positions.push(pos);
+        }
+      }
+      return positions;
+    }
+
+    function createBoard() {
+      board.innerHTML = '';
+      board.style.gridTemplateColumns = `repeat(${boardSize}, 30px)`;
+      board.style.gridTemplateRows = `repeat(${boardSize}, 30px)`;
+      for (let y = 0; y < boardSize; y++) {
+        for (let x = 0; x < boardSize; x++) {
+          const cell = document.createElement('div');
+          cell.classList.add('cell');
+
+          if (x === playerPosition.x && y === playerPosition.y) {
+            cell.classList.add('player');
+          } else if (x === goalPosition.x && y === goalPosition.y) {
+            cell.classList.add('goal');
+            if (collectibles.length === 0) {
+              cell.classList.add('active'); // Goal becomes active
+            }
+          } else if (obstacles.some(o => o.x === x && o.y === y)) {
+            cell.classList.add('obstacle');
+          } else if (collectibles.some(c => c.x === x && c.y === y)) {
+            cell.classList.add('collectible');
+          }
+
+          board.appendChild(cell);
+        }
+      }
+    }
+
+    function movePlayer(dx, dy) {
+      const newX = playerPosition.x + dx;
+      const newY = playerPosition.y + dy;
+
+      if (
+        newX >= 0 && newX < boardSize &&
+        newY >= 0 && newY < boardSize &&
+        !obstacles.some(o => o.x === newX && o.y === newY)
+      ) {
+        playerPosition.x = newX;
+        playerPosition.y = newY;
+
+        const collectibleIndex = collectibles.findIndex(
+          c => c.x === playerPosition.x && c.y === playerPosition.y
+        );
+        if (collectibleIndex !== -1) {
+          collectibles.splice(collectibleIndex, 1);
+          score += 10;
+          scoreDisplay.textContent = score;
+          collectSound.play(); // Play sound on collectible pickup
+        }
+
+        if (
+          playerPosition.x === goalPosition.x &&
+          playerPosition.y === goalPosition.y &&
+          collectibles.length === 0
+        ) {
+          goalSound.play(); // Play sound when goal is reached
+          if (level === maxLevels) {
+            alert(`You win the game! Final Score: ${score}`);
+            clearInterval(interval);
+            return;
+          }
+          levelUp();
+        }
+
+        createBoard();
+      }
+    }
+
+    function levelUp() {
+      level++;
+      levelDisplay.textContent = level;
+      boardSize = Math.min(10 + Math.floor(level / 5), 20);
+      playerPosition = { x: 0, y: 0 };
+      goalPosition = { x: randomPosition(), y: randomPosition() };
+
+      obstacles = generateObstacles(level * 3);
+      collectibles = generateCollectibles(Math.min(level, 10));
+
+      timeLeft = Math.max(30 - Math.floor(level / 2), 10);
+      createBoard();
+
+      levelUpSound.play(); // Play sound when level is up
+    }
+
+    function countdown() {
+      if (timeLeft > 0) {
+        timeLeft--;
+        timerDisplay.textContent = timeLeft;
+      } else {
+        gameOverSound.play(); // Play sound when time is up
+        alert(`You lost! Reached Level: ${level}, Score: ${score}`);
+        resetGame();
+      }
+    }
+
+    function resetGame() {
+      level = 1;
+      score = 0;
+      boardSize = 10;
+      playerPosition = { x: 0, y: 0 };
+      goalPosition = { x: randomPosition(), y: randomPosition() };
+      obstacles = generateObstacles(10);
+      collectibles = generateCollectibles(5);
+      timeLeft = 30;
+      levelDisplay.textContent = level;
+      scoreDisplay.textContent = score;
+      timerDisplay.textContent = timeLeft;
+      clearInterval(interval);
+      interval = setInterval(countdown, 1000);
+      createBoard();
+    }
+
+    window.addEventListener('keydown', (e) => {
+      switch (e.key) {
+        case 'ArrowUp': movePlayer(0, -1); break;
+        case 'ArrowDown': movePlayer(0, 1); break;
+        case 'ArrowLeft': movePlayer(-1, 0); break;
+        case 'ArrowRight': movePlayer(1, 0); break;
+      }
+    });
+
+    window.onload = resetGame; // Ensure the game is initialized when the page loads
+  </script>
+</body>
+</html>
